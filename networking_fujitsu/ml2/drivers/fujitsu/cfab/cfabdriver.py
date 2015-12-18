@@ -334,6 +334,25 @@ class CFABdriver(object):
             raise ValueError(_("pprofile_prefix contains illegal character."))
 
     @utils.synchronized(_LOCK_NAME)
+    def setup_vlan(self, address, username, password,
+                   vfab_id, vlan_id, mac, physical_ports, lag):
+        """Setup untagged VLAN"""
+        try:
+            self.mgr.connect(address, username, password)
+            # TODO(yushiro) get_ifgroup
+            pass
+        except (EOFError, EnvironmentError, select.error,
+                ml2_exc.MechanismDriverError):
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_LE("CLI error"))
+
+    @utils.synchronized(_LOCK_NAME)
+    def clear_vlan(self, address, username, password,
+                   vfab_id, vlan_id, mac, physical_ports, lag):
+        """Clear untagged VLAN"""
+        pass
+
+    @utils.synchronized(_LOCK_NAME)
     def associate_mac_to_network(self, address, username, password,
                                  vfab_id, net_id, mac):
         """Associates a MAC address to virtual network."""

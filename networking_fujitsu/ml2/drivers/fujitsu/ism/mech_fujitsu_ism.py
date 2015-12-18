@@ -48,7 +48,7 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     def create_port_postcommit(self, context):
         """Call ISM API to set VLAN configuration."""
         port = context.current
-        if not fj_util.validate_vnic_type(port):
+        if not fj_util.is_baremetal_deploy(port):
             return
 
         net_type, seg_id = fj_util.get_network_info(context,
@@ -74,7 +74,7 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     def update_port_postcommit(self, context):
         """Call ISM API to set VLAN configuration."""
         port = context.current
-        if not fj_util.validate_vnic_type(port):
+        if not fj_util.is_baremetal_deploy(port):
             return
 
         net_type, seg_id = fj_util.get_network_info(context,
@@ -98,7 +98,7 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     def delete_port_postcommit(self, context):
         """Call ISM API to reset VLAN configuration."""
         port = context.current
-        if not fj_util.validate_vnic_type:
+        if not fj_util.is_baremetal_deploy(port):
             return
         net_type, seg_id = fj_util.get_network_info(context,
                                                     port['network_id'])

@@ -16,12 +16,12 @@
 from neutron.extensions import portbindings
 from neutron.i18n import _LE
 from neutron.i18n import _LI
-from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
 from oslo_log import log as logging
 
 LOG = logging.getLogger(__name__)
+
 
 def get_network_info(context, net_id):
     segments = context.network.network_segments
@@ -32,22 +32,33 @@ def get_network_info(context, net_id):
     LOG.info(_LI("segmentation_id = %s") % segmentation_id)
     return network_type, segmentation_id
 
+
 def get_physical_connectivity(port):
     # TODO(yushiro) replace following characters to constant value
-    binding_profile = port.get("binding:profile", None)
-    if not binding_profile:
-        return None
+    binding_profile = port['binding:profile']
+    local_link_information = binding_profile.get("local_link_information", [])
+    return local_link_information
 
-    local_link_info = binding_profile.get("local_link_information", [])
-    if (local_link_info == [] or local_link_info is None
-       or local_link_info == {}):
-        return None
-    return local_link_info
 
-def validate_vnic_type(port):
+def is_baremetal_deploy(port):
     vnic_type = port.get(portbindings.VNIC_TYPE, portbindings.VNIC_NORMAL)
     if (vnic_type != portbindings.VNIC_BAREMETAL):
         LOG.warn("This plugin is doing nothing before ironic-neutron\
                   integration will be merged.")
         return False
-    return True
+    elif get_physical_connectivity(port):
+        return True
+    else:
+        LOG.warn("local_link_information is not specified.")
+        return False
+
+
+def _validate_network_type(network_type, method="_validate_network_type"):
+    if network_type != 'vlan':
+        LOG.error(
+            _LE("Fujitsu Mechanism: only network type vlan is supported"))
+        raise ml2_exc.MechanismDriverError(method=method)
+
+
+def is_lag(local_link_information):
+    return True if len(local_link_information) > 1 else False

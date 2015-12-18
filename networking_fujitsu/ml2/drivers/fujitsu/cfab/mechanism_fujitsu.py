@@ -168,10 +168,12 @@ class FujitsuMechanism(driver_api.MechanismDriver):
         """Associate the assigned MAC address to the portprofile."""
         LOG.debug("create_port_postcommit: called")
 
-        if fj_util.validate_vnic_type(mech_context.current):
-            _setup_for_physical(self, mech_context)
-        else
-            port = mech_context.current
+        method = 'create_port_postcommit'
+        port = mech_context.current
+        if fj_util.is_baremetal_deploy(mech_context.current):
+            params = self.validate_network_params(mech_context, method)
+            self.setup_vlan(mech_context, params, method)
+        else:
             port_id = port['id']
             network_id = port['network_id']
             tenant_id = port['tenant_id']
@@ -179,14 +181,12 @@ class FujitsuMechanism(driver_api.MechanismDriver):
             segments = mech_context.network.network_segments
             # currently supports only one segment per network
             segment = segments[0]
-            _validate_network_type(
-                segment[driver_api.NETWORK_TYPE],
-                method="create_port_postcommit")
+            fj_util._validate_network_type(
+                segment[driver_api.NETWORK_TYPE], method=method)
             vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
             vlan_id = segment[driver_api.SEGMENTATION_ID]
 
             interface_mac = port['mac_address']
-
 
             try:
                 self._driver.associate_mac_to_network(self._switch['address'],
@@ -215,11 +215,12 @@ class FujitsuMechanism(driver_api.MechanismDriver):
     def delete_port_postcommit(self, mech_context):
         """Dissociate MAC address from the portprofile."""
         LOG.debug("delete_port_postcommit: called")
-
-        if fj_util.validate_vnic_type(mech_context.current):
-            _setup_for_physical(self, mech_context)
-        else
-            port = mech_context.current
+        method = 'delete_port_postcommit'
+        port = mech_context.current
+        if fj_util.is_baremetal_deploy(mech_context.current):
+            params = self.validate_network_params(mech_context, method)
+            self.setup_vlan(self, mech_context, params, method)
+        else:
             port_id = port['id']
             network_id = port['network_id']
             tenant_id = port['tenant_id']
@@ -227,9 +228,8 @@ class FujitsuMechanism(driver_api.MechanismDriver):
             segments = mech_context.network.network_segments
             # currently supports only one segment per network
             segment = segments[0]
-            _validate_network_type(
-                segment[driver_api.NETWORK_TYPE],
-                method="delete_port_postcommit")
+            fj_util._validate_network_type(
+                segment[driver_api.NETWORK_TYPE], method=method)
             vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
             vlan_id = segment[driver_api.SEGMENTATION_ID]
 
@@ -265,9 +265,11 @@ class FujitsuMechanism(driver_api.MechanismDriver):
            vnic_type is not 'baremetal': do nothing.
         """
         LOG.debug("update_port_postcommit: called")
-
-        if fj_util.validate_vnic_type(mech_context.current):
-            _setup_for_physical(self, mech_context)
+        method = 'update_port_postcommit'
+        port = mech_context.current
+        if fj_util.is_baremetal_deploy(port):
+            params = self.validate_network_params(mech_context, method)
+            self.setup_vlan(self, mech_context, params, method)
 
     def create_subnet_precommit(self, mech_context):
         """Noop now, it is left here for future."""
@@ -293,15 +295,65 @@ class FujitsuMechanism(driver_api.MechanismDriver):
         """Noop now, it is left here for future."""
         LOG.debug("update_subnet_postcommit: called")
 
-    def setup_for_physical(self, mech_context):
+    def setup_vlan(self, mech_context, params, method='setup_vlan'):
+        """Provision untagged VLAN with specified port"""
+
+        try:
+            # This plugin supposes 1 C-Fabric(fabric_id) management.
+            # Therefore, not to identify target IP address by using
+            # switch_info(mac_address).
+            self._driver.setup_vlan(
+                self._switch['address'],
+                self._switch['username'],
+                self._switch['password'],
+                params['vfab_id'],
+                params['vlan_id'],
+                params['mac_address'],
+                params['local_link_information'],
+                params['lag'],
+                )
+        except Exception:
+            LOG.exception(_LE("Fujitsu Mechanism: failed to setup vlan %s") %
+                params['vlan_id'])
+            raise ml2_exc.MechanismDriverError(method=method)
+
+    def clear_vlan(self, mech_context, params, method='clear_vlan'):
+        try:
+            # This plugin supposes 1 C-Fabric(fabric_id) management.
+            # Therefore, not to identify target IP address by using
+            # switch_info(mac_address).
+            self._driver.clear_vlan(
+                self._switch['address'],
+                self._switch['username'],
+                self._switch['password'],
+                params['vfab_id'],
+                params['vlan_id'],
+                params['mac_address'],
+                params['local_link_information'],
+                params['lag'],
+                )
+        except Exception:
+            LOG.exception(_LE("Fujitsu Mechanism: failed to clear vlan %s") %
+                params['vlan_id'])
+            raise ml2_exc.MechanismDriverError(method=method)
         pass
 
-    def setup_for_virtual(self, mech_context):
-        pass
-
-
-def _validate_network_type(network_type, method="_validate_network_type"):
-    if network_type != 'vlan':
-        LOG.error(
-            _LE("Fujitsu Mechanism: only network type vlan is supported"))
-        raise ml2_exc.MechanismDriverError(method=method)
+    def validate_network_params(self, mech_context,
+                                method='validate_network_params'):
+        port = mech_context.current
+        segments = mech_context.network.network_segments
+        # currently supports only one segment per network
+        segment = segments[0]
+        fj_util._validate_network_type(
+            segment[driver_api.NETWORK_TYPE], method=method)
+        vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
+        vlan_id = segment[driver_api.SEGMENTATION_ID]
+        interface_mac = port['mac_address']
+        local_link_information = fj_util.get_physical_connectivity(port)
+        return {
+                   "local_link_information": local_link_information,
+                   "vfab_id": vfab_id,
+                   "vlan_id": vlan_id,
+                   "mac_address": interface_mac,
+                   "lag": fj_util.is_lag(local_link_information)
+               }
