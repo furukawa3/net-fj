@@ -35,6 +35,7 @@ except ImportError:
     except ImportError:
         from neutron.openstack.common.gettextutils import _LE
         from neutron.openstack.common.gettextutils import _LI
+from networking_fujitsu.ml2.drivers.fujitsu.common import utils as fj_util
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
 
@@ -165,44 +166,47 @@ class FujitsuMechanism(driver_api.MechanismDriver):
 
     def create_port_postcommit(self, mech_context):
         """Associate the assigned MAC address to the portprofile."""
-
         LOG.debug("create_port_postcommit: called")
 
-        port = mech_context.current
-        port_id = port['id']
-        network_id = port['network_id']
-        tenant_id = port['tenant_id']
+        if fj_util.validate_vnic_type(mech_context.current):
+            _setup_for_physical(self, mech_context)
+        else
+            port = mech_context.current
+            port_id = port['id']
+            network_id = port['network_id']
+            tenant_id = port['tenant_id']
 
-        segments = mech_context.network.network_segments
-        # currently supports only one segment per network
-        segment = segments[0]
-        _validate_network_type(
-            segment[driver_api.NETWORK_TYPE],
-            method="create_port_postcommit")
-        vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
-        vlan_id = segment[driver_api.SEGMENTATION_ID]
-
-        interface_mac = port['mac_address']
-
-        try:
-            self._driver.associate_mac_to_network(self._switch['address'],
-                                                  self._switch['username'],
-                                                  self._switch['password'],
-                                                  vfab_id,
-                                                  vlan_id,
-                                                  interface_mac)
-        except Exception:
-            LOG.exception(
-                _LE("Fujitsu Mechanism: failed to associate mac %s")
-                % interface_mac)
-            raise ml2_exc.MechanismDriverError(
+            segments = mech_context.network.network_segments
+            # currently supports only one segment per network
+            segment = segments[0]
+            _validate_network_type(
+                segment[driver_api.NETWORK_TYPE],
                 method="create_port_postcommit")
+            vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
+            vlan_id = segment[driver_api.SEGMENTATION_ID]
 
-        LOG.info(
-            _LI("created port (postcommit): port_id=%(port_id)s "
-                "network_id=%(network_id)s tenant_id=%(tenant_id)s"),
-            {'port_id': port_id,
-             'network_id': network_id, 'tenant_id': tenant_id})
+            interface_mac = port['mac_address']
+
+
+            try:
+                self._driver.associate_mac_to_network(self._switch['address'],
+                                                      self._switch['username'],
+                                                      self._switch['password'],
+                                                      vfab_id,
+                                                      vlan_id,
+                                                      interface_mac)
+            except Exception:
+                LOG.exception(
+                    _LE("Fujitsu Mechanism: failed to associate mac %s")
+                    % interface_mac)
+                raise ml2_exc.MechanismDriverError(
+                    method="create_port_postcommit")
+
+            LOG.info(
+                _LI("created port (postcommit): port_id=%(port_id)s "
+                    "network_id=%(network_id)s tenant_id=%(tenant_id)s"),
+                {'port_id': port_id,
+                 'network_id': network_id, 'tenant_id': tenant_id})
 
     def delete_port_precommit(self, mech_context):
         """Noop now, it is left here for future."""
@@ -210,52 +214,60 @@ class FujitsuMechanism(driver_api.MechanismDriver):
 
     def delete_port_postcommit(self, mech_context):
         """Dissociate MAC address from the portprofile."""
-
         LOG.debug("delete_port_postcommit: called")
-        port = mech_context.current
-        port_id = port['id']
-        network_id = port['network_id']
-        tenant_id = port['tenant_id']
 
-        segments = mech_context.network.network_segments
-        # currently supports only one segment per network
-        segment = segments[0]
-        _validate_network_type(
-            segment[driver_api.NETWORK_TYPE],
-            method="delete_port_postcommit")
-        vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
-        vlan_id = segment[driver_api.SEGMENTATION_ID]
+        if fj_util.validate_vnic_type(mech_context.current):
+            _setup_for_physical(self, mech_context)
+        else
+            port = mech_context.current
+            port_id = port['id']
+            network_id = port['network_id']
+            tenant_id = port['tenant_id']
 
-        interface_mac = port['mac_address']
-
-        try:
-            self._driver.dissociate_mac_from_network(
-                self._switch['address'],
-                self._switch['username'],
-                self._switch['password'],
-                vfab_id,
-                vlan_id,
-                interface_mac)
-        except Exception:
-            LOG.exception(
-                _LE("Fujitsu Mechanism: failed to dissociate MAC %s") %
-                interface_mac)
-            raise ml2_exc.MechanismDriverError(
+            segments = mech_context.network.network_segments
+            # currently supports only one segment per network
+            segment = segments[0]
+            _validate_network_type(
+                segment[driver_api.NETWORK_TYPE],
                 method="delete_port_postcommit")
+            vfab_id = self._get_vfab_id(segment[driver_api.PHYSICAL_NETWORK])
+            vlan_id = segment[driver_api.SEGMENTATION_ID]
 
-        LOG.info(
-            _LI("delete port (postcommit): port_id=%(port_id)s "
-                "network_id=%(network_id)s tenant_id=%(tenant_id)s"),
-            {'port_id': port_id,
-             'network_id': network_id, 'tenant_id': tenant_id})
+            interface_mac = port['mac_address']
+
+            try:
+                self._driver.dissociate_mac_from_network(
+                    self._switch['address'],
+                    self._switch['username'],
+                    self._switch['password'],
+                    vfab_id,
+                    vlan_id,
+                    interface_mac)
+            except Exception:
+                LOG.exception(
+                    _LE("Fujitsu Mechanism: failed to dissociate MAC %s") %
+                    interface_mac)
+                raise ml2_exc.MechanismDriverError(
+                    method="delete_port_postcommit")
+
+            LOG.info(
+                _LI("delete port (postcommit): port_id=%(port_id)s "
+                    "network_id=%(network_id)s tenant_id=%(tenant_id)s"),
+                {'port_id': port_id,
+                 'network_id': network_id, 'tenant_id': tenant_id})
 
     def update_port_precommit(self, mech_context):
         """Noop now, it is left here for future."""
         LOG.debug("update_port_precommit(self: called")
 
     def update_port_postcommit(self, mech_context):
-        """Noop now, it is left here for future."""
+        """vnic_type is 'baremetal': untagged VLAN configuration.
+           vnic_type is not 'baremetal': do nothing.
+        """
         LOG.debug("update_port_postcommit: called")
+
+        if fj_util.validate_vnic_type(mech_context.current):
+            _setup_for_physical(self, mech_context)
 
     def create_subnet_precommit(self, mech_context):
         """Noop now, it is left here for future."""
@@ -280,6 +292,12 @@ class FujitsuMechanism(driver_api.MechanismDriver):
     def update_subnet_postcommit(self, mech_context):
         """Noop now, it is left here for future."""
         LOG.debug("update_subnet_postcommit: called")
+
+    def setup_for_physical(self, mech_context):
+        pass
+
+    def setup_for_virtual(self, mech_context):
+        pass
 
 
 def _validate_network_type(network_type, method="_validate_network_type"):
