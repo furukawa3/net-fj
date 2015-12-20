@@ -51,6 +51,8 @@ from neutron.plugins.ml2.common import exceptions as ml2_exc
 LOG = logging.getLogger(__name__)
 TELNET_PORT = 23
 
+_IFGROUP = 'ifgroup'
+_LAG = 'linkaggregation'
 _LOCK_NAME = 'fujitsu'
 _TIMEOUT = 30
 _TIMEOUT_LOGIN = 5
@@ -74,7 +76,14 @@ _INDEX_RE = re.compile(r"^(\d+)\s+", re.MULTILINE)
 _VFAB_PPROFILE_RE = re.compile(
     r"^vfab\s+(default|\d+)\s+pprofile\s+(\d+)\s+"
     r"vsiid\s+(?:mac|uuid)\s+\S+\s+(\S+)", re.MULTILINE)
+_IFGROUP_RE = re.compile(
+    r"^ifgroup\s+(\d+)\s+(ether|linkaggregation)\s+", re.MULTILINE)
+_LAG_RE = re.compile(r"^linkaggregation\s+(\d+)\s(\d)\s+", re.MULTILINE)
 _PPROFILE_INDICES = frozenset(range(0, 4096))
+_IFGROUP_INDICES = frozenset(range(0, 4095))
+_LAG_INDICES = frozenset(range(0, 200))
+_INDICES = {_IFGROUP: _IFGROUP_INDICES, _LAG: _LAG_INDICES}
+_RE = {_IFGROUP: _IFGROUP_RE, _LAG: _LAG_RE}
 
 
 class _CFABManager(object):
@@ -104,6 +113,29 @@ class _CFABManager(object):
         self._username = username
         self._password = password
         self._reconnect()
+
+    def get_candidate_config(self, prefix=None):
+        """Get running-config of the switch."""
+
+        terminal = self._execute("show terminal")
+        match = _PAGER_ENABLE_RE.search(terminal)
+        if match:
+            self._execute("terminal pager disable")
+        res = self._get_running_config_no_pager_control(prefix)
+        if match:
+            self._execute("terminal pager enable")
+        return res
+
+    def _get_candidate_config_no_pager_control(self, prefix=None):
+        """Get running-config of the switch without pager control."""
+
+        current = self._get_mode()
+        if current not in (_MODE_ADMIN, _MODE_CONFIG, _MODE_CONFIG_IF):
+            self._reconnect()
+        cmd = "show candidate-config"
+        if prefix:
+            cmd = " ".join([cmd, prefix])
+        return self._execute(cmd)
 
     def get_running_config(self, prefix=None):
         """Get running-config of the switch."""
@@ -335,11 +367,25 @@ class CFABdriver(object):
 
     @utils.synchronized(_LOCK_NAME)
     def setup_vlan(self, address, username, password,
-                   vfab_id, vlan_id, mac, physical_ports, lag):
+                   vfab_id, vlan_id, mac, physical_ports):
         """Setup untagged VLAN"""
         try:
             self.mgr.connect(address, username, password)
+            #candidate_config = self.get_candidate_config()
             # TODO(yushiro) get_ifgroup
+            pass
+        except (EOFError, EnvironmentError, select.error,
+                ml2_exc.MechanismDriverError):
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_LE("CLI error"))
+
+    def setup_vlan_with_lag(self, address, username, password,
+                   vfab_id, vlan_id, mac, physical_ports):
+        """Setup untagged VLAN with linkaggregation"""
+        try:
+            self.mgr.connect(address, username, password)
+            #candidate_config = self.get_candidate_config()
+            # TODO(yushiro) get_ifgroup with lag
             pass
         except (EOFError, EnvironmentError, select.error,
                 ml2_exc.MechanismDriverError):
@@ -525,6 +571,14 @@ def _search_vfab_pprofile(vfab_id, mac_address, running_config):
         return None, None
 
 
+def _search_ifgroup_index(ports, candidate_config, lag=False):
+    """Search for the ifgroup id. Returns ifgroup index if found."""
+    if_type = _LAG if lag else 'ether'
+    match = re.search(r"^ifgroup\s+(\d+)\s+{if_type}\s+{ports}$".format(
+                if_type=if_type, ports=ports), candidate_config, re.MULTILINE)
+    return int(match.group(1)) if match else None
+
+
 def _get_vfab_pprofile_index(vfab_id, pprofile, mac_address, running_config):
     """Gets the index for vfab pprofile."""
 
@@ -537,6 +591,16 @@ def _get_vfab_pprofile_index(vfab_id, pprofile, mac_address, running_config):
     if match:
         index = match.group(1)
     return index
+
+
+def _get_available_index(target, running_config):
+    """Gets an available index for vfab pprofile."""
+
+    indices = _INDICES[target]
+    reg = _RE[target]
+    available = indices - set(
+        [int(x) for x in re.findall(reg, running_config, re.MULTILINE)])
+    return sorted(available)[0] if len(available) > 0 else None
 
 
 def _get_available_vfab_pprofile_index(vfab_id, running_config):
