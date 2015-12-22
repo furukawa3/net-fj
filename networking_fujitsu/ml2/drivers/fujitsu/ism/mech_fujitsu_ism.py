@@ -37,6 +37,7 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
 
     @classmethod
     def create_ism_base(self, network_type, segmentation_id):
+
         if (network_type == p_const.TYPE_VLAN):
             ism = self._driver.IsmVlanBase(network_type, segmentation_id)
             return ism
@@ -47,12 +48,13 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     @log_helpers.log_method_call
     def create_port_postcommit(self, context):
         """Call ISM API to set VLAN configuration."""
+
         port = context.current
         if not fj_util.is_baremetal_deploy(port):
+            LOG.warn("This plugin is doing nothing before ironic-neutron\
+                      integration will be merged.")
             return
-
-        net_type, seg_id = fj_util.get_network_info(context,
-                                                    port['network_id'])
+        net_type, seg_id = fj_util.get_network_segments(port.network)
         phy_connections = fj_util.get_physical_connectivity(port)
 
         # TODO(yushiro) Call LAG setup function of ISM
@@ -73,12 +75,14 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     @log_helpers.log_method_call
     def update_port_postcommit(self, context):
         """Call ISM API to set VLAN configuration."""
+
         port = context.current
         if not fj_util.is_baremetal_deploy(port):
+            LOG.warn("This plugin is doing nothing before ironic-neutron\
+                      integration will be merged.")
             return
 
-        net_type, seg_id = fj_util.get_network_info(context,
-                                                    port['network_id'])
+        net_type, seg_id = fj_util.get_network_segments(port.network)
         phy_connections = fj_util.get_physical_connectivity(port)
 
         for phy_con in phy_connections:
@@ -97,11 +101,13 @@ class FujitsuIsmDriver(driver_api.MechanismDriver):
     @log_helpers.log_method_call
     def delete_port_postcommit(self, context):
         """Call ISM API to reset VLAN configuration."""
+
         port = context.current
         if not fj_util.is_baremetal_deploy(port):
+            LOG.warn("This plugin is doing nothing before ironic-neutron\
+                      integration will be merged.")
             return
-        net_type, seg_id = fj_util.get_network_info(context,
-                                                    port['network_id'])
+        net_type, seg_id = fj_util.get_network_segments(port.network)
         phy_connections = fj_util.get_physical_connectivity(port)
 
         # TODO(yushiro) Call LAG un-setup function of ISM
